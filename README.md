@@ -29,4 +29,4 @@ UAlias requires [bwap](https://github.com/buzzingwires/bwap)
 
 Run `nimble install https://github.com/buzzingwires/bwap` to install.
 
-Then ualias can be built with `nimble build`. Copy the resulting binary wherever you'd like.
+Then `ualias` can be built with `nimble build`. Copy the resulting binary wherever you'd like.
