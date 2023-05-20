@@ -27,7 +27,7 @@ The read performance of UAlias may be improved by placing it in a cron job that 
 Building
 --------
 
-UAlias requires [bwap](https://github.com/buzzingwires/bwap)
+UAlias requires [BWAP](https://github.com/buzzingwires/bwap)
 
 Run `nimble install https://github.com/buzzingwires/bwap` to install.
 
