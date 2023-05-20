@@ -1,6 +1,8 @@
 UAlias
 ======
 
+*Turn shell aliases into standalone scripts*
+
 Overview and Usage
 ------------------
 
