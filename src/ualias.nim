@@ -48,12 +48,14 @@ type ProgramContext = ref object of RootObj
   overwrite: bool
   storeDir: string
   linkDir: string
-type PrintMode = enum normal, shell
+type PrintMode = enum normal, shell, name
 proc getPrintMode(mode: string): PrintMode =
   if mode == "normal":
     result = PrintMode.normal
   elif mode == "shell":
     result = PrintMode.shell
+  elif mode == "name":
+    result = PrintMode.name
   else:
     assert(false)
 type PrintContext = ref object of ProgramContext
@@ -273,6 +275,9 @@ proc printAliasPretext(ctx: PrintContext) =
   if ctx.mode == PrintMode.shell:
     stdout.writeLine("#!/bin/sh -efu")
     stdout.writeLine("")
+proc printAliasPosttext(ctx: PrintContext) =
+  if ctx.mode == PrintMode.name:
+    stdout.writeLine("")
 proc getEscaped(value: string, toEscape: openArray[string], escapeWith: string): string =
   result = ""
   var idx: Natural = 0
@@ -291,36 +296,40 @@ proc getEscaped(value: string, toEscape: openArray[string], escapeWith: string):
 proc getShellEscaped(value: string): string =
   result = getEscaped(value, ["$", "`", "\\", "\""], "\\")
 
-proc formatAliasLine(ctx: PrintContext; aliasName: string; scanner: AliasScanner): string =
-  var aliasContents: string
-  var aliasPostInstruction: string = ""
-  if scanner.line.endsWith(" \"$@\" # ALIASED"):
-    aliasContents = scanner.line[0..len(scanner.line) - len(" \"$@\" # ALIASED") - 1]
-  elif scanner.line.endsWith(" # ALIASED"):
-    aliasContents = scanner.line[0..len(scanner.line) - len(" # ALIASED") - 1]
-    let aliasPostInstructionArgsStart = aliasContents.find("\"$@\" ")
-    let aliasPostInstructionStart = aliasPostInstructionArgsStart + len("\"$@\" ")
-    assert(aliasPostInstructionStart >= 0)
-    aliasPostInstruction = aliasContents[aliasPostInstructionStart..len(aliasContents) - 1]
-    aliasContents = aliasContents[0..aliasPostInstructionArgsStart - 2]
-  if ctx.mode == PrintMode.normal:
-    var aliasSpace = ""
-    if aliasPostInstruction != "":
-      aliasSpace = " \"$@\" "
-    result = aliasName & "=\"" & aliasContents & aliasSpace & aliasPostInstruction & "\""
-  elif ctx.mode == PrintMode.shell:
-    result = getShellEscaped(ctx.exeName) &
-             " --verbose --overwrite --scripts-dir \"" &
-             getShellEscaped(ctx.storeDir) &
-             "\" --link-dir \"" &
-             getShellEscaped(ctx.linkDir) &
-             "\" \"" &
-             getShellEscaped(aliasName) &
-             "\" \"" &
-             getShellEscaped(aliasContents) &
-             "\""
-    if aliasPostInstruction != "":
-      result &= " --post-instruction \"" & getShellEscaped(aliasPostInstruction) & "\""
+proc formatAliasEntry(ctx: PrintContext; aliasName: string; scanner: AliasScanner): string =
+  if ctx.mode == PrintMode.name:
+    result = aliasName & " "
+  else:
+    var aliasContents: string
+    var aliasPostInstruction: string = ""
+    if scanner.line.endsWith(" \"$@\" # ALIASED"):
+      aliasContents = scanner.line[0..len(scanner.line) - len(" \"$@\" # ALIASED") - 1]
+    elif scanner.line.endsWith(" # ALIASED"):
+      aliasContents = scanner.line[0..len(scanner.line) - len(" # ALIASED") - 1]
+      let aliasPostInstructionArgsStart = aliasContents.find("\"$@\" ")
+      let aliasPostInstructionStart = aliasPostInstructionArgsStart + len("\"$@\" ")
+      assert(aliasPostInstructionStart >= 0)
+      aliasPostInstruction = aliasContents[aliasPostInstructionStart..len(aliasContents) - 1]
+      aliasContents = aliasContents[0..aliasPostInstructionArgsStart - 2]
+    if ctx.mode == PrintMode.normal:
+      var aliasSpace = ""
+      if aliasPostInstruction != "":
+        aliasSpace = " \"$@\" "
+      result = aliasName & "=\"" & aliasContents & aliasSpace & aliasPostInstruction & "\"" & "\n"
+    elif ctx.mode == PrintMode.shell:
+      result = getShellEscaped(ctx.exeName) &
+               " --verbose --overwrite --scripts-dir \"" &
+               getShellEscaped(ctx.storeDir) &
+               "\" --link-dir \"" &
+               getShellEscaped(ctx.linkDir) &
+               "\" \"" &
+               getShellEscaped(aliasName) &
+               "\" \"" &
+               getShellEscaped(aliasContents) &
+               "\""
+      if aliasPostInstruction != "":
+        result &= " --post-instruction \"" & getShellEscaped(aliasPostInstruction) & "\""
+      result &= "\n"
 
 proc printAliases(ctx: PrintContext) =
   printAliasPretext(ctx)
@@ -350,26 +359,27 @@ proc printAliases(ctx: PrintContext) =
     let scanner = newAliasScanner(ctx.lw, path)
     try:
       scanner.scanAlias()
-      stdout.writeLine( formatAliasLine(ctx, aliasName, scanner) )
+      stdout.write( formatAliasEntry(ctx, aliasName, scanner) )
     except AliasFormatError:
       ctx.lw.log(Level.lvlWarn, "'", path, "' is not recognized as a ualias script.")
     finally:
       closeAliasScanner(scanner)
       #TODO: Make sure this closes
+  printAliasPosttext(ctx)
 # Alias printing end
 
 # Main
 type AliasUsageError = object of AliasError
 when isMainModule:
   let info = newProgramInfo(getAppFilename(),
-                            "2022-11-16-NIM",
+                            "2023-09-04-NIM",
                             "/usr/local/bin",
                             "/usr/local/bin/aliases")
   var ap = newArgsParser(info.exeName, "Manage shell-script based aliases. (Version " & info.version & ")")
   var apPos = ap.newOptionalPositionalArgs("Leave the positional args blank to print aliases. Otherwise, to create aliases, valid formats are \"<Alias Name>=<Alias Contents>\" and \"<Alias Name> <Alias Contents>\".", mostArgs = 2)
   var apDelete = ap.newOptionalValuedArgs("delete", 'd', "Delete the specified alias. No positional options may be used when this is specified.")
   var apPostInstruction = ap.newOptionalValuedArgs("post-instruction", 'p', "When creating an alias, this is to be included after the arguments.")
-  var apPrintFormat = ap.newOptionalValuedArgs("print-format", 'P', "The format to print aliases in.", defaultArg = "normal", argChoices = ["normal", "shell"])
+  var apPrintFormat = ap.newOptionalValuedArgs("print-format", 'P', "The format to print aliases in.", defaultArg = "normal", argChoices = ["normal", "shell", "name"])
   var apHelp = ap.newHelpArgs("help", 'h', "Print help, then quit.")
   var apVerbose = ap.newBoolArgs("verbose", 'v', "Print non-error messages to stderr.")
   var apOverwrite = ap.newBoolArgs("overwrite", 'o', "Overwrite the alias if it already exists.")
